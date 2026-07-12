@@ -1,0 +1,10 @@
+#!/bin/sh
+# PID 1 = the guest agent (supervisor). It spawns the UNMODIFIED workload as a child so it
+# can gate execution for zero-window fork safety (SIGSTOP before snapshot, SIGCONT after
+# the post-fork reseed). The workload runs with the event-mode RNG hook via the agent's env.
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sys /sys 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+mkdir -p /run/klados
+echo 0 > /run/klados/forkgen
+exec /usr/bin/python3 -u /klados/guest_agent.py /usr/bin/python3 -u /entropy_gen.py

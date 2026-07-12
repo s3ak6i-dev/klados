@@ -1,0 +1,23 @@
+{
+  "spike": "B",
+  "config": {
+    "kernel": "/opt/klados/assets/vmlinux",
+    "rootfs": "/opt/klados/assets/rootfs.ext4",
+    "mem_mib": 2048,
+    "vcpus": 2,
+    "forks": 16,
+    "mechanism": "file-cow",
+    "settle_s": 2.0,
+    "observe_s": 1.0
+  },
+  "mechanism": "file-cow",
+  "base_pss_kib": 94232,
+  "fork_wall_ms": 1152.32,
+  "sum_child_pss_kib": 157524,
+  "naive_n_times_base_kib": 1507712,
+  "savings_ratio": 0.104,
+  "thresholds": {
+    "fork_wall_ms_lt": 2000,
+    "savings_ratio_lt": 0.5
+  }
+}

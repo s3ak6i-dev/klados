@@ -1,0 +1,43 @@
+{
+  "spike": "C",
+  "mode": "vanilla",
+  "config": {
+    "kernel": "/opt/klados/assets/vmlinux",
+    "rootfs": "/opt/klados/assets/rootfs-entropy.ext4",
+    "forks": 8,
+    "mem_mib": 512,
+    "mode": "vanilla",
+    "warm_s": 3.0,
+    "observe_s": 3.0
+  },
+  "samples_per_child": {
+    "0": 60,
+    "1": 61,
+    "2": 62,
+    "3": 62,
+    "4": 62,
+    "5": 64,
+    "6": 65,
+    "7": 65
+  },
+  "streams": {
+    "MT": {
+      "label": "userspace Mersenne Twister (random)",
+      "total_values": 501,
+      "cross_fork_collisions": 65,
+      "verdict": "COLLIDE"
+    },
+    "O": {
+      "label": "OpenSSL DRBG (ssl.RAND_bytes) \u2014 TLS client random",
+      "total_values": 501,
+      "cross_fork_collisions": 65,
+      "verdict": "COLLIDE"
+    },
+    "K": {
+      "label": "kernel CSPRNG (/dev/urandom)",
+      "total_values": 501,
+      "cross_fork_collisions": 0,
+      "verdict": "clean"
+    }
+  }
+}

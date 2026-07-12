@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Rust
+spikes/uffd/target/
+
+# scratch / logs
+*.log
+*.tmp

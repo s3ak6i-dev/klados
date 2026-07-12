@@ -1,0 +1,18 @@
+[package]
+name = "klados-uffd"
+version = "0.1.0"
+edition = "2021"
+description = "Shared-base UFFD page-fault handler for Klados Spike B (uffd mechanism)."
+
+[[bin]]
+name = "klados-uffd"
+path = "src/main.rs"
+
+[dependencies]
+# The userfaultfd crate wraps the raw ioctls (register / copy / zeropage).
+userfaultfd = "0.8"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true

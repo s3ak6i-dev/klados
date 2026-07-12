@@ -1,0 +1,31 @@
+{
+  "spike": "C",
+  "config": {
+    "kernel": "/opt/klados/assets/vmlinux",
+    "rootfs": "/opt/klados/assets/rootfs-entropy.ext4",
+    "forks": 8,
+    "mem_mib": 512,
+    "warm_s": 3.0,
+    "observe_s": 3.0
+  },
+  "samples_per_child": {
+    "0": 59,
+    "1": 61,
+    "2": 62,
+    "3": 62,
+    "4": 62,
+    "5": 62,
+    "6": 62,
+    "7": 63
+  },
+  "userspace_MT": {
+    "total_values": 493,
+    "cross_fork_collisions": 62,
+    "verdict": "COLLIDE (R2 real)"
+  },
+  "kernel_urandom_K": {
+    "total_values": 493,
+    "cross_fork_collisions": 0,
+    "verdict": "clean (self-healed)"
+  }
+}

@@ -1,0 +1,4 @@
+# Captured spike results ARE committed (they are the evidence). Only ignore build/cache.
+uffd/target/
+__pycache__/
+*.pyc
