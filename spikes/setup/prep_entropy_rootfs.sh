@@ -58,10 +58,12 @@ PY
 #     The application (entropy_gen.py) stays UNMODIFIED; all fix logic lives in these.
 SRC="$(cd "$(dirname "$0")/../guest" && pwd)"
 mkdir -p "$MNT/klados"
-cp "$SRC/sitecustomize.py" "$MNT/klados/sitecustomize.py"
-cp "$SRC/guest_agent.py"   "$MNT/klados/guest_agent.py"
-cp "$SRC/init_protocol"    "$MNT/init_protocol"
-chmod +x "$MNT/init_protocol"
+cp "$SRC/sitecustomize.py"    "$MNT/klados/sitecustomize.py"
+cp "$SRC/guest_agent.py"      "$MNT/klados/guest_agent.py"
+cp "$SRC/init_protocol"       "$MNT/init_protocol"
+cp "$SRC/fidelity_workload.py" "$MNT/fidelity_workload.py"
+cp "$SRC/init_fidelity"       "$MNT/init_fidelity"
+chmod +x "$MNT/init_protocol" "$MNT/init_fidelity" "$MNT/fidelity_workload.py"
 
 # clock generator (Spike E / R8): streams guest wall + monotonic clocks to console
 cat > "$MNT/clock_gen.py" <<'PY'

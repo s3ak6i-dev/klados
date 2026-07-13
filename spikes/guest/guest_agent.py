@@ -69,6 +69,25 @@ class Agent:
         t = msg.get("type")
         if t == "PING":
             return {"status": "PONG"}
+        if t == "CHECK":
+            # inspect the workload's on-disk SQLite DB (fidelity spike): integrity + per-worker rows
+            import sqlite3
+            db = msg.get("db", "/run/klados/app.db")
+            out = {"status": "CHECK"}
+            try:
+                con = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=10)
+                out["integrity"] = con.execute("PRAGMA integrity_check").fetchone()[0]
+                rows = con.execute("SELECT worker, COUNT(*) FROM writes GROUP BY worker").fetchall()
+                out["per_worker"] = {str(w): c for w, c in rows}
+                out["total"] = con.execute("SELECT COUNT(*) FROM writes").fetchone()[0]
+                try:
+                    out["session"] = open("/run/klados/session").read().strip()
+                except Exception:
+                    out["session"] = None
+                con.close()
+            except Exception as e:
+                out["error"] = str(e)
+            return out
         if t == "QUIESCE":
             self.work.send_signal(signal.SIGSTOP)
             return {"status": "QUIESCED", "pid": self.work.pid}

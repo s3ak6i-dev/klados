@@ -1,6 +1,6 @@
 # Guest/host scripts must keep LF endings to run in the Linux guest, even on Windows checkouts.
 *.sh    text eol=lf
 *.py    text eol=lf
-init_protocol text eol=lf
+init_*  text eol=lf
 Makefile text eol=lf
 * text=auto
