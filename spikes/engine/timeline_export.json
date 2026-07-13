@@ -1,0 +1,57 @@
+{
+  "run_id": "13d84b11496a",
+  "snapshots": [
+    {
+      "id": "58448bc8c7a7",
+      "parent_id": null,
+      "label": "task loaded",
+      "size_bytes": 536884605,
+      "created_at": 1783922035.7571776
+    },
+    {
+      "id": "b30ec4ab68a9",
+      "parent_id": "58448bc8c7a7",
+      "label": "branch 1 - fix applied",
+      "size_bytes": 536882075,
+      "created_at": 1783922036.6690462
+    }
+  ],
+  "instances": [
+    {
+      "id": "3d5e4fd8f582",
+      "snapshot_id": "58448bc8c7a7",
+      "state": "RUNNING",
+      "branch": "genesis"
+    },
+    {
+      "id": "7c51eecaeb10",
+      "snapshot_id": "58448bc8c7a7",
+      "state": "RUNNING",
+      "branch": "branch 0 of 3"
+    },
+    {
+      "id": "6472a900d5f2",
+      "snapshot_id": "b30ec4ab68a9",
+      "state": "RUNNING",
+      "branch": "branch 1 of 3"
+    },
+    {
+      "id": "99b8401d1202",
+      "snapshot_id": "58448bc8c7a7",
+      "state": "RUNNING",
+      "branch": "branch 2 of 3"
+    },
+    {
+      "id": "3f42acba4180",
+      "snapshot_id": "b30ec4ab68a9",
+      "state": "RUNNING",
+      "branch": "branch 0 of 2"
+    },
+    {
+      "id": "b877b61c8abe",
+      "snapshot_id": "b30ec4ab68a9",
+      "state": "RUNNING",
+      "branch": "branch 1 of 2"
+    }
+  ]
+}

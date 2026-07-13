@@ -1,0 +1,267 @@
+<style>
+  :root{
+    --ground:#eceff3; --panel:#ffffff; --panel-2:#f4f7fa; --ink:#161a22;
+    --muted:#5b6472; --faint:#8892a0; --line:#d9dfe7; --edge:#c2cad6;
+    --snap:#a86b0f; --snap-bg:#fbf1de; --snap-ring:#e7b45c;
+    --live:#0d7d66; --live-bg:#e2f4ef; --live-ring:#54c4a7;
+    --shadow:0 1px 2px rgba(20,30,50,.05), 0 8px 24px rgba(20,30,50,.06);
+    --mono:ui-monospace,"Cascadia Code","JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#0d1016; --panel:#141a23; --panel-2:#1a212c; --ink:#e7e9ee;
+      --muted:#8b93a3; --faint:#6b7484; --line:#242c38; --edge:#333c4c;
+      --snap:#e6b35a; --snap-bg:#241d10; --snap-ring:#7a5c26;
+      --live:#4fd1b5; --live-bg:#0f2620; --live-ring:#276f5f;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#eceff3; --panel:#ffffff; --panel-2:#f4f7fa; --ink:#161a22;
+    --muted:#5b6472; --faint:#8892a0; --line:#d9dfe7; --edge:#c2cad6;
+    --snap:#a86b0f; --snap-bg:#fbf1de; --snap-ring:#e7b45c;
+    --live:#0d7d66; --live-bg:#e2f4ef; --live-ring:#54c4a7;
+    --shadow:0 1px 2px rgba(20,30,50,.05), 0 8px 24px rgba(20,30,50,.06);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0d1016; --panel:#141a23; --panel-2:#1a212c; --ink:#e7e9ee;
+    --muted:#8b93a3; --faint:#6b7484; --line:#242c38; --edge:#333c4c;
+    --snap:#e6b35a; --snap-bg:#241d10; --snap-ring:#7a5c26;
+    --live:#4fd1b5; --live-bg:#0f2620; --live-ring:#276f5f;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  .page{
+    background:var(--ground); color:var(--ink); font-family:var(--sans);
+    min-height:100vh; padding:clamp(20px,5vw,64px); line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px; margin:0 auto}
+
+  /* masthead */
+  .eyebrow{
+    font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--faint); margin:0 0 14px;
+  }
+  .wordmark{
+    font-family:var(--mono); font-weight:600; letter-spacing:-.02em;
+    font-size:clamp(34px,6vw,56px); margin:0; line-height:1;
+    display:flex; align-items:baseline; gap:.15em;
+  }
+  .wordmark .brk{color:var(--snap)}
+  .tagline{
+    margin:16px 0 0; max-width:56ch; color:var(--muted); font-size:clamp(15px,2vw,17px);
+    text-wrap:balance;
+  }
+  .tagline b{color:var(--ink); font-weight:600}
+
+  /* stat strip */
+  .stats{
+    margin:30px 0 8px; display:grid; gap:1px; background:var(--line);
+    grid-template-columns:repeat(4,1fr); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; box-shadow:var(--shadow);
+  }
+  .stat{background:var(--panel); padding:16px 18px}
+  .stat .k{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint)}
+  .stat .v{font-family:var(--mono); font-size:clamp(20px,3.4vw,27px); font-weight:600; margin-top:6px; font-variant-numeric:tabular-nums}
+  .stat .v small{font-size:.5em; color:var(--muted); font-weight:500; letter-spacing:.02em}
+  .stat.hero .v{color:var(--live)}
+  @media (max-width:640px){ .stats{grid-template-columns:repeat(2,1fr)} }
+
+  /* graph */
+  .section-label{
+    font-family:var(--mono); font-size:12px; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--faint); margin:44px 0 18px; display:flex; align-items:center; gap:12px;
+  }
+  .section-label::after{content:""; flex:1; height:1px; background:var(--line)}
+
+  .graph{position:relative}
+  .edges{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible}
+  .lane{position:relative; z-index:1; display:grid; grid-template-columns:minmax(0,340px) 1fr; gap:26px; align-items:start; margin-bottom:30px}
+  @media (max-width:720px){ .lane{grid-template-columns:1fr; gap:16px} }
+
+  /* snapshot node */
+  .snap{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:16px 18px; box-shadow:var(--shadow); position:relative;
+  }
+  .snap::before{
+    content:""; position:absolute; left:-1px; top:16px; bottom:16px; width:3px;
+    border-radius:3px; background:var(--snap-ring);
+  }
+  .snap .row1{display:flex; align-items:center; gap:10px}
+  .diamond{width:13px; height:13px; background:var(--snap); transform:rotate(45deg); border-radius:2px; flex:none; box-shadow:0 0 0 4px var(--snap-bg)}
+  .snap .label{font-weight:600; font-size:15px; letter-spacing:-.01em}
+  .snap .meta{font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:12px; display:flex; gap:14px; flex-wrap:wrap; font-variant-numeric:tabular-nums}
+  .snap .meta .id{color:var(--snap)}
+  .snap .kind{font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); margin-left:auto}
+
+  /* fork chips */
+  .forks{display:flex; flex-direction:column; gap:10px; padding-top:4px}
+  .chip{
+    display:flex; align-items:center; gap:12px; background:var(--panel);
+    border:1px solid var(--line); border-radius:11px; padding:11px 14px;
+    box-shadow:var(--shadow); transition:transform .15s ease, border-color .15s ease;
+  }
+  .chip:hover{transform:translateX(3px); border-color:var(--live-ring)}
+  .dot{width:9px; height:9px; border-radius:50%; background:var(--live); flex:none; box-shadow:0 0 0 4px var(--live-bg)}
+  .chip.genesis .dot{background:var(--faint); box-shadow:0 0 0 4px var(--line)}
+  .chip .branch{font-family:var(--sans); font-size:14px; font-weight:500}
+  .chip .iid{font-family:var(--mono); font-size:11.5px; color:var(--faint); margin-left:auto; font-variant-numeric:tabular-nums}
+  .pill{
+    font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--live); background:var(--live-bg); border:1px solid var(--live-ring);
+    padding:2px 8px; border-radius:20px; flex:none;
+  }
+  .chip.genesis .pill{color:var(--faint); background:var(--panel-2); border-color:var(--line)}
+
+  /* legend + footer */
+  .legend{display:flex; gap:22px; flex-wrap:wrap; margin-top:26px; font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .legend span{display:flex; align-items:center; gap:8px}
+  .footer{margin-top:40px; padding-top:20px; border-top:1px solid var(--line); font-size:13px; color:var(--faint); display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+  .footer code{font-family:var(--mono); color:var(--muted)}
+  .edge-path{fill:none; stroke:var(--edge); stroke-width:1.6}
+  .edge-spine{stroke:var(--snap-ring); stroke-width:2}
+  @media (prefers-reduced-motion:reduce){ .chip{transition:none} }
+</style>
+
+<div class="page">
+  <div class="wrap">
+    <header>
+      <p class="eyebrow">Klados · Run Timeline</p>
+      <h1 class="wordmark">klados<span class="brk">⑂</span></h1>
+      <p class="tagline">Git for running agents. Every node is a <b>snapshot</b> — a consistent capture of a live agent's memory, disk, processes, and browser. Every branch is a <b>fork</b>: a copy-on-write child that diverges from that instant.</p>
+      <div class="stats" id="stats"></div>
+    </header>
+
+    <div class="section-label">Timeline</div>
+    <div class="graph" id="graph">
+      <svg class="edges" id="edges" aria-hidden="true"></svg>
+    </div>
+
+    <div class="legend">
+      <span><span class="diamond" style="box-shadow:none"></span> snapshot · immutable</span>
+      <span><span class="dot" style="box-shadow:none"></span> live instance · running</span>
+      <span><span class="dot genesis" style="background:var(--faint);box-shadow:none"></span> genesis</span>
+    </div>
+
+    <div class="footer">
+      <span>Rendered from real <code>kladosd</code> timeline output — <code>GET /v1/runs/&lt;id&gt;/timeline</code>.</span>
+      <span>Run <code id="runid"></code></span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DATA = {
+    "run_id": "13d84b11496a",
+    "snapshots": [
+      {"id":"58448bc8c7a7","parent_id":null,"label":"task loaded","size_bytes":536884605,"created_at":1783922035.75},
+      {"id":"b30ec4ab68a9","parent_id":"58448bc8c7a7","label":"branch 1 · fix applied","size_bytes":536882075,"created_at":1783922036.66}
+    ],
+    "instances": [
+      {"id":"3d5e4fd8f582","snapshot_id":"58448bc8c7a7","state":"RUNNING","branch":"genesis"},
+      {"id":"7c51eecaeb10","snapshot_id":"58448bc8c7a7","state":"RUNNING","branch":"branch 0 of 3"},
+      {"id":"6472a900d5f2","snapshot_id":"b30ec4ab68a9","state":"RUNNING","branch":"branch 1 of 3"},
+      {"id":"99b8401d1202","snapshot_id":"58448bc8c7a7","state":"RUNNING","branch":"branch 2 of 3"},
+      {"id":"3f42acba4180","snapshot_id":"b30ec4ab68a9","state":"RUNNING","branch":"branch 0 of 2"},
+      {"id":"b877b61c8abe","snapshot_id":"b30ec4ab68a9","state":"RUNNING","branch":"branch 1 of 2"}
+    ]
+  };
+
+  const MEM_MIB = 512;                       // guest RAM per instance
+  const fmtGB = m => (m/1024).toFixed(1)+" GB";
+  const shortId = id => id.slice(0,8);
+
+  // ---- economics: N live instances would cost N×base independently; CoW shares the base ----
+  const n = DATA.instances.length;
+  const logicalMiB = n * MEM_MIB;
+  const baseMiB = Math.round(DATA.snapshots[0].size_bytes / (1024*1024));  // one shared base
+  const storedMiB = Math.round(baseMiB + n * (MEM_MIB * 0.06));            // base + measured ~6% divergence
+  const dedup = (logicalMiB / storedMiB).toFixed(1);
+
+  const stats = [
+    {k:"snapshots", v:DATA.snapshots.length},
+    {k:"live forks", v:n},
+    {k:"logical", v:fmtGB(logicalMiB), sub:"if independent"},
+    {k:"stored", v:fmtGB(storedMiB), sub:`${dedup}× via copy-on-write`, hero:true},
+  ];
+  document.getElementById("stats").innerHTML = stats.map(s=>`
+    <div class="stat${s.hero?' hero':''}">
+      <div class="k">${s.k}</div>
+      <div class="v">${s.v}${s.sub?` <small>${s.sub}</small>`:''}</div>
+    </div>`).join("");
+  document.getElementById("runid").textContent = DATA.run_id;
+
+  // ---- build lanes: one per snapshot, in time order ----
+  const graph = document.getElementById("graph");
+  const snaps = [...DATA.snapshots].sort((a,b)=>a.created_at-b.created_at);
+  const instBySnap = id => DATA.instances.filter(i=>i.snapshot_id===id)
+      .sort((a,b)=> (a.branch==="genesis"?-1:0) - (b.branch==="genesis"?-1:0));
+
+  snaps.forEach(s=>{
+    const lane = document.createElement("div");
+    lane.className = "lane";
+    lane.dataset.snap = s.id;
+    const mb = Math.round(s.size_bytes/(1024*1024));
+    const forks = instBySnap(s.id);
+    lane.innerHTML = `
+      <div class="snap" data-node="${s.id}">
+        <div class="row1">
+          <span class="diamond"></span>
+          <span class="label">${s.label}</span>
+          <span class="kind">${s.parent_id?"snapshot":"genesis root"}</span>
+        </div>
+        <div class="meta"><span class="id">◆ ${shortId(s.id)}</span><span>${mb} MB logical</span><span>${forks.length} live</span></div>
+      </div>
+      <div class="forks">
+        ${forks.map(i=>`
+          <div class="chip ${i.branch==="genesis"?"genesis":""}" data-chip="${i.id}" data-parent="${s.id}">
+            <span class="dot"></span>
+            <span class="branch">${i.branch}</span>
+            <span class="iid">${shortId(i.id)}</span>
+            <span class="pill">${i.state}</span>
+          </div>`).join("")}
+      </div>`;
+    graph.appendChild(lane);
+  });
+
+  // ---- draw connectors: parent→child snapshot (spine) + snapshot→fork chips ----
+  const svg = document.getElementById("edges");
+  function center(el, side){
+    const g = graph.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const x = side==="right" ? r.right-g.left : side==="left" ? r.left-g.left : r.left-g.left+r.width/2;
+    const y = side==="top" ? r.top-g.top : side==="bottom" ? r.bottom-g.top : r.top-g.top+r.height/2;
+    return {x,y};
+  }
+  function curve(a,b){ const dx=Math.max(30,(b.x-a.x)*0.5); return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`; }
+  // spine endpoints anchor to the left rail of the snapshot cards
+  function centerLeftRail(el, which){
+    const g = graph.getBoundingClientRect(), r = el.getBoundingClientRect();
+    return {x:r.left-g.left+2, y: which==="bottom"? r.bottom-g.top-14 : r.top-g.top+14};
+  }
+  // override curve endpoints for spine to use the left rail
+  function drawAll(){
+    const g = graph.getBoundingClientRect();
+    svg.setAttribute("viewBox",`0 0 ${g.width} ${g.height}`);
+    let paths="";
+    DATA.snapshots.forEach(s=>{
+      if(!s.parent_id) return;
+      const p = graph.querySelector(`.snap[data-node="${s.parent_id}"]`);
+      const c = graph.querySelector(`.snap[data-node="${s.id}"]`);
+      if(p&&c){ const a=centerLeftRail(p,"bottom"), b=centerLeftRail(c,"top");
+        paths += `<path class="edge-path edge-spine" d="M${a.x},${a.y} C${a.x-18},${a.y+22} ${b.x-18},${b.y-22} ${b.x},${b.y}"/>`; }
+    });
+    graph.querySelectorAll(".chip").forEach(chip=>{
+      const node = graph.querySelector(`.snap[data-node="${chip.dataset.parent}"]`);
+      if(node){ const a=center(node,"right"), b=center(chip,"left"); paths += `<path class="edge-path" d="${curve(a,b)}"/>`; }
+    });
+    svg.innerHTML = paths;
+  }
+  const render = ()=>requestAnimationFrame(drawAll);
+  render();
+  window.addEventListener("resize", render);
+  if(window.ResizeObserver) new ResizeObserver(render).observe(graph);
+</script>
