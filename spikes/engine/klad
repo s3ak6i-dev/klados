@@ -70,6 +70,7 @@ def main():
     pf = sub.add_parser("fork"); pf.add_argument("snapshot"); pf.add_argument("-n", type=int, default=4)
     pl = sub.add_parser("log"); pl.add_argument("run")
     pd = sub.add_parser("diff"); pd.add_argument("a"); pd.add_argument("b")
+    sub.add_parser("usage")
     a = ap.parse_args()
 
     if a.cmd == "run":
@@ -100,6 +101,12 @@ def main():
     elif a.cmd == "runs":
         for run in call("GET", "/v1/runs")["runs"]:
             print(f"{run['id']}  {run['image']}")
+    elif a.cmd == "usage":
+        u = call("GET", "/v1/usage")
+        print(f"  vCPU-hours    : {u['vcpu_hours']}")
+        print(f"  RAM GiB-hours : {u['ram_gib_hours']}")
+        print(f"  stored bytes  : {u['stored_bytes']:,}")
+        print(f"  est. cost     : ${u['estimated_cost_usd']}")
 
 
 if __name__ == "__main__":

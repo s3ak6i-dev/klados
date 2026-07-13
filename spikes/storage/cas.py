@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import os
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 
 
 class CAS:
@@ -36,6 +37,7 @@ class CAS:
         if s3 and bucket:
             s3.make_bucket(bucket)
         self.index: dict[str, int] = {}   # chunk hash -> stored (compressed) length
+        self._pending: list[tuple[str, bytes]] = []  # chunks queued for S3 upload
         self.logical = 0
         self.stored = 0
         self.chunks = 0
@@ -83,7 +85,7 @@ class CAS:
                         with open(p, "wb") as cf:
                             cf.write(comp)
                 if self.s3 and self.bucket:
-                    self.s3.put(self.bucket, self._key(h), comp)   # cold, durable tier
+                    self._pending.append((h, comp))   # queued; flush_s3() uploads in parallel
             manifest.append(h)
         return manifest
 
@@ -97,6 +99,16 @@ class CAS:
                 # align read buffer to block size so fixed-block hashing is stable across reads
                 manifest += self.put_bytes(data)
         return manifest
+
+    def flush_s3(self, workers: int = 16) -> int:
+        """Upload queued chunks to the cold tier in parallel (16K sequential PUTs is too slow).
+        Synchronous so a cold restore right after is guaranteed to find the chunks in S3."""
+        if not (self.s3 and self.bucket) or not self._pending:
+            return 0
+        pending, self._pending = self._pending, []
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(lambda hc: self.s3.put(self.bucket, self._key(hc[0]), hc[1]), pending))
+        return len(pending)
 
     def get(self, h: str) -> bytes:
         """Return a chunk's decompressed bytes. Hot cache first; on a miss, pull from the S3 cold

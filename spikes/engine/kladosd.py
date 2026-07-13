@@ -81,6 +81,9 @@ def init_db():
       CREATE TABLE IF NOT EXISTS instances(
         id TEXT PRIMARY KEY, run_id TEXT, snapshot_id TEXT, state TEXT,
         branch TEXT, created_at REAL);
+      CREATE TABLE IF NOT EXISTS usage(
+        project_id TEXT PRIMARY KEY, vcpu_s REAL DEFAULT 0, ram_gib_s REAL DEFAULT 0,
+        updated_at REAL);
     """)
     # bootstrap a default project + root API key on first run
     if not con.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
@@ -152,6 +155,7 @@ def _chunk_mem(sid, mem_path):
     file (realizing dedup). Returns logical bytes stored."""
     with _store_lock:
         hashes = STORE.put_file(mem_path)
+        STORE.flush_s3()  # parallel upload of queued chunks to the cold tier (fast)
     with open(os.path.join(SNAPDIR, sid, "mem.manifest"), "w") as f:
         json.dump({"block": 4096, "hashes": hashes}, f)
     logical = os.path.getsize(mem_path)
@@ -366,6 +370,60 @@ def fs_diff(sid_a, sid_b):
         _umount(mb)
 
 
+# ---------------------------------------------------------------- metering
+# PRD pricing (Pro tier): compute per-second, storage per GB-month, post-dedup.
+PRICE_VCPU_HR = 0.09
+PRICE_RAM_GIB_HR = 0.35
+PRICE_STORE_GB_MO = 0.05
+
+
+def _meter_tick(dt):
+    """Accrue compute for each RUNNING instance to its project (per-second sampling)."""
+    gib = IMAGE["mem_mib"] / 1024.0
+    accr = {}  # project_id -> [vcpu_s, ram_gib_s]
+    con = db()
+    for iid in list(LIVE.keys()):
+        row = con.execute("SELECT r.project_id FROM instances i JOIN runs r ON i.run_id=r.id WHERE i.id=?",
+                          (iid,)).fetchone()
+        if not row:
+            continue
+        a = accr.setdefault(row["project_id"], [0.0, 0.0])
+        a[0] += 1 * dt          # 1 vCPU per instance (see _spec)
+        a[1] += gib * dt
+    now = time.time()
+    for pid, (v, g) in accr.items():
+        con.execute("""INSERT INTO usage(project_id,vcpu_s,ram_gib_s,updated_at) VALUES(?,?,?,?)
+                       ON CONFLICT(project_id) DO UPDATE SET
+                         vcpu_s=vcpu_s+excluded.vcpu_s, ram_gib_s=ram_gib_s+excluded.ram_gib_s,
+                         updated_at=excluded.updated_at""",
+                    (pid, v, g, now))
+    con.commit()
+    con.close()
+
+
+def _meter_loop(interval=2.0):
+    while True:
+        time.sleep(interval)
+        try:
+            _meter_tick(interval)
+        except Exception:
+            pass
+
+
+def usage(project_id):
+    con = db()
+    row = con.execute("SELECT vcpu_s, ram_gib_s FROM usage WHERE project_id=?", (project_id,)).fetchone()
+    stored = con.execute("""SELECT COALESCE(SUM(s.size_bytes),0) b FROM snapshots s
+                            JOIN runs r ON s.run_id=r.id WHERE r.project_id=?""", (project_id,)).fetchone()["b"]
+    con.close()
+    vcpu_hr = (row["vcpu_s"] if row else 0) / 3600.0
+    ram_hr = (row["ram_gib_s"] if row else 0) / 3600.0
+    store_gb = stored / 1e9
+    cost = vcpu_hr * PRICE_VCPU_HR + ram_hr * PRICE_RAM_GIB_HR + store_gb * PRICE_STORE_GB_MO / 730.0
+    return {"vcpu_hours": round(vcpu_hr, 5), "ram_gib_hours": round(ram_hr, 5),
+            "stored_bytes": stored, "estimated_cost_usd": round(cost, 5)}
+
+
 def destroy_instance(iid):
     vm = LIVE.pop(iid, None)
     if vm:
@@ -432,6 +490,8 @@ class H(BaseHTTPRequestHandler):
         try:
             if p == ["v1", "runs"]:
                 return self._send(200, list_runs(pid))
+            if p == ["v1", "usage"]:
+                return self._send(200, usage(pid))
             if len(p) == 4 and p[1] == "runs" and p[3] == "timeline":
                 _require_owner(pid, "runs", "id", p[2])
                 return self._send(200, timeline(p[2]))
@@ -474,6 +534,7 @@ class H(BaseHTTPRequestHandler):
 
 def serve(host="127.0.0.1", port=7070):
     init_db()
+    __import__("threading").Thread(target=_meter_loop, daemon=True).start()
     print(f"kladosd listening on http://{host}:{port}  (KLADOS_HOME={HOME})")
     ThreadingHTTPServer((host, port), H).serve_forever()
 
