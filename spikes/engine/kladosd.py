@@ -182,6 +182,17 @@ def fork_snapshot(sid, n=4):
     return {"children": children}
 
 
+def destroy_instance(iid):
+    vm = LIVE.pop(iid, None)
+    if vm:
+        vm.kill()
+    con = db()
+    con.execute("UPDATE instances SET state='DESTROYED' WHERE id=?", (iid,))
+    con.commit()
+    con.close()
+    return {"instance_id": iid, "state": "DESTROYED"}
+
+
 def timeline(run_id):
     con = db()
     snaps = [dict(r) for r in con.execute(
@@ -240,6 +251,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, snapshot_instance(p[2], b.get("label", "snap")))
             if len(p) == 4 and p[1] == "snapshots" and p[3] == "fork":
                 return self._send(200, fork_snapshot(p[2], int(b.get("n", 4))))
+            if len(p) == 4 and p[1] == "instances" and p[3] == "destroy":
+                return self._send(200, destroy_instance(p[2]))
             self._send(404, {"error": "not found"})
         except Exception as e:
             self._send(500, {"error": str(e)})
