@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""klad — the Klados CLI (M0). Git-shaped, talks to kladosd over HTTP/JSON.
+
+    klad run [--image X]            boot a fresh agent VM (a Run + genesis Instance)
+    klad snapshot <instance>        snapshot a live instance
+    klad fork <snapshot> [-n N]     N-way copy-on-write fork of a snapshot
+    klad log <run>                  render the run's timeline DAG (Git-style graph)
+    klad runs                       list runs
+"""
+import argparse
+import json
+import sys
+import urllib.request
+
+API = "http://127.0.0.1:7070"
+
+
+def call(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(API + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        print("error:", e.read().decode(), file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError:
+        print("error: cannot reach kladosd — is it running? (sudo python3 kladosd.py serve)", file=sys.stderr)
+        sys.exit(1)
+
+
+def render_timeline(t):
+    snaps = t["snapshots"]
+    insts = t["instances"]
+    kids = {}
+    for s in snaps:
+        kids.setdefault(s["parent_id"], []).append(s)
+    inst_by_snap = {}
+    for i in insts:
+        inst_by_snap.setdefault(i["snapshot_id"], []).append(i)
+
+    print(f"run {t['run_id']}")
+    genesis = [i for i in insts if i["branch"] == "genesis"]
+    for g in genesis:
+        print(f"  ● genesis  instance {g['id']}  [{g['state']}]")
+
+    def walk(parent, depth):
+        for s in kids.get(parent, []):
+            pad = "  " + "  " * depth
+            mb = (s["size_bytes"] or 0) / 1e6
+            print(f"{pad}◆ {s['id']}  \"{s['label']}\"  ({mb:.1f} MB)")
+            for i in inst_by_snap.get(s["id"], []):
+                print(f"{pad}    ↳ fork {i['id']}  [{i['branch']}]  {i['state']}")
+            walk(s["id"], depth + 1)
+
+    walk(None, 0)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="klad")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("runs")
+    pr = sub.add_parser("run"); pr.add_argument("--image", default="klados/agent")
+    ps = sub.add_parser("snapshot"); ps.add_argument("instance"); ps.add_argument("--label", default="snap")
+    pf = sub.add_parser("fork"); pf.add_argument("snapshot"); pf.add_argument("-n", type=int, default=4)
+    pl = sub.add_parser("log"); pl.add_argument("run")
+    a = ap.parse_args()
+
+    if a.cmd == "run":
+        r = call("POST", "/v1/runs", {"image": a.image})
+        print(f"run  {r['run_id']}\ninstance {r['instance_id']}  (booting agent…)")
+    elif a.cmd == "snapshot":
+        r = call("POST", f"/v1/instances/{a.instance}/snapshot", {"label": a.label})
+        print(f"snapshot {r['snapshot_id']}  ({r['size_bytes']/1e6:.1f} MB)")
+    elif a.cmd == "fork":
+        r = call("POST", f"/v1/snapshots/{a.snapshot}/fork", {"n": a.n})
+        print(f"forked {len(r['children'])} children:")
+        for c in r["children"]:
+            print(f"  {c['instance_id']}  [{c['branch']}]")
+    elif a.cmd == "log":
+        render_timeline(call("GET", f"/v1/runs/{a.run}/timeline"))
+    elif a.cmd == "runs":
+        for run in call("GET", "/v1/runs")["runs"]:
+            print(f"{run['id']}  {run['image']}")
+
+
+if __name__ == "__main__":
+    main()

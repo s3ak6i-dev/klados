@@ -70,11 +70,17 @@ class VmSpec:
 class Microvm:
     """Launches a firecracker process and drives it. Use as a context manager."""
 
-    def __init__(self, spec: VmSpec, workdir: str, name: str = "vm", console: str | None = None):
+    def __init__(self, spec: VmSpec, workdir: str, name: str = "vm", console: str | None = None,
+                 vsock_remap: tuple | None = None):
         self.spec = spec
         self.workdir = workdir
         self.name = name
         self.console = console  # if set, firecracker stdout/stderr (serial console) -> this file
+        # vsock_remap = (baked_dir, perfork_dir): launch firecracker in a private mount namespace
+        # where baked_dir (the path baked into the snapshot) is bind-mounted to perfork_dir, so
+        # each fork's baked vsock socket resolves to its own file. This is the jailer-lite trick
+        # that makes CONCURRENT N-way fork work despite Firecracker baking host paths in snapshots.
+        self.vsock_remap = vsock_remap
         self.sock = os.path.join(workdir, f"{name}.sock")
         self.proc: subprocess.Popen | None = None
         self._console_fh = None
@@ -96,10 +102,15 @@ class Microvm:
             out = err = self._console_fh
         else:
             out = err = subprocess.DEVNULL
-        self.proc = subprocess.Popen(
-            ["firecracker", "--api-sock", self.sock],
-            stdout=out, stderr=err,
-        )
+        if self.vsock_remap:
+            baked, perfork = self.vsock_remap
+            os.makedirs(perfork, exist_ok=True)
+            inner = (f"mkdir -p '{baked}' && mount --bind '{perfork}' '{baked}' && "
+                     f"exec firecracker --api-sock '{self.sock}'")
+            cmd = ["unshare", "--mount", "--propagation", "private", "sh", "-c", inner]
+        else:
+            cmd = ["firecracker", "--api-sock", self.sock]
+        self.proc = subprocess.Popen(cmd, stdout=out, stderr=err)
         self.api = FcApi(self.sock)
         self._await_sock()
 
