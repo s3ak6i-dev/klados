@@ -4,3 +4,4 @@
 init_*  text eol=lf
 Makefile text eol=lf
 * text=auto
+klad text eol=lf

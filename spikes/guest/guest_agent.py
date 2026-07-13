@@ -91,6 +91,14 @@ class Agent:
         if t == "QUIESCE":
             self.work.send_signal(signal.SIGSTOP)
             return {"status": "QUIESCED", "pid": self.work.pid}
+        if t == "BROWSER_CHECK":
+            def rd(p):
+                try:
+                    return open(p).read().strip()
+                except Exception:
+                    return None
+            return {"status": "BROWSER", "token": rd("/run/klados/browser_token"),
+                    "state": rd("/run/klados/browser_state")}
         if t == "FORKED":
             idx, ctx = msg.get("index"), msg.get("branch_context")
             clock_set = None

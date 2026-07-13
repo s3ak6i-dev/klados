@@ -1,0 +1,18 @@
+#!/bin/sh
+# PID 1 for the browser-fidelity test. Chrome needs several writable dirs and /dev/fd, but the
+# rootfs is read-only — so we provide them from tmpfs and symlink /dev/fd -> /proc/self/fd.
+mount -t devtmpfs dev /dev 2>/dev/null
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sys /sys 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+mount -t tmpfs -o size=512m tmpfs /tmp 2>/dev/null
+mkdir -p /run/klados /run/klados/home /run/klados/cache /run/klados/config /dev/shm
+mount -t tmpfs -o size=256m tmpfs /dev/shm 2>/dev/null
+# bring up loopback (Chrome CDP is on 127.0.0.1) using python — no iproute2 in the rootfs
+python3 -c "import socket,fcntl,struct;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);f=struct.unpack('16sh',fcntl.ioctl(s,0x8913,struct.pack('16sh',b'lo',0)))[1];fcntl.ioctl(s,0x8914,struct.pack('16sh',b'lo',f|1))" 2>/dev/null
+ln -sf /proc/self/fd /dev/fd
+ln -sf /proc/self/fd/0 /dev/stdin
+ln -sf /proc/self/fd/1 /dev/stdout
+ln -sf /proc/self/fd/2 /dev/stderr
+echo 0 > /run/klados/forkgen
+exec /usr/bin/python3 -u /klados/guest_agent.py /usr/bin/python3 -u /browser_workload.py
