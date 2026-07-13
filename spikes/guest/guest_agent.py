@@ -90,6 +90,7 @@ class Agent:
             return out
         if t == "QUIESCE":
             self.work.send_signal(signal.SIGSTOP)
+            os.sync()  # flush /data writes to the backing disk before the snapshot seals it
             return {"status": "QUIESCED", "pid": self.work.pid}
         if t == "BROWSER_CHECK":
             def rd(p):
@@ -104,6 +105,12 @@ class Agent:
             clock_set = None
             if ctx is not None:
                 _write_atomic(BRANCH, json.dumps({"index": idx, "n": msg.get("n"), "context": ctx}))
+                # also write to the per-instance data disk so forks diverge on-disk (for fs-diff)
+                try:
+                    with open("/data/branch.txt", "w") as f:
+                        f.write("%s\n" % ctx)
+                except Exception:
+                    pass
             if "true_time" in msg and set_realtime(float(msg["true_time"])):
                 clock_set = time.time()
             gen = _bump_gen()                      # bump generation FIRST ...

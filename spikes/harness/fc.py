@@ -62,6 +62,7 @@ class VmSpec:
     vcpus: int = 2
     track_dirty: bool = True
     rootfs_read_only: bool = False
+    scratch: str | None = None     # optional per-instance writable data disk (guest /dev/vdb)
     vsock_uds: str | None = None   # host-side unix socket for the guest vsock device
     vsock_cid: int = 3
     boot_args: str = "console=ttyS0 reboot=k panic=1 pci=off i8042.noaux i8042.nomux"
@@ -134,6 +135,11 @@ class Microvm:
             "drive_id": "rootfs", "path_on_host": s.rootfs,
             "is_root_device": True, "is_read_only": s.rootfs_read_only,
         })
+        if s.scratch:
+            self.api.put("/drives/scratch", {
+                "drive_id": "scratch", "path_on_host": s.scratch,
+                "is_root_device": False, "is_read_only": False,
+            })
         self.api.put("/machine-config", {
             "vcpu_count": s.vcpus, "mem_size_mib": s.mem_mib,
             "track_dirty_pages": s.track_dirty,

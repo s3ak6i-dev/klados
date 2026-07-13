@@ -75,6 +75,10 @@ class Snapshot:
         r = _call("POST", f"/v1/snapshots/{self.id}/fork", {"n": n})
         return [Sandbox(c["instance_id"], self.run_id, branch=c.get("branch")) for c in r["children"]]
 
+    def diff(self, other: "Snapshot") -> dict:
+        """Filesystem diff of the /data layer between this snapshot and another."""
+        return _call("GET", f"/v1/snapshots/{self.id}/diff/{other.id}")
+
     def __repr__(self):
         return f"Snapshot({self.id})"
 

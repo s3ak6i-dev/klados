@@ -57,7 +57,7 @@ PY
 #     sitecustomize.py (RNG hook), guest_agent.py (vsock FORKED protocol), init_protocol.
 #     The application (entropy_gen.py) stays UNMODIFIED; all fix logic lives in these.
 SRC="$(cd "$(dirname "$0")/../guest" && pwd)"
-mkdir -p "$MNT/klados"
+mkdir -p "$MNT/klados" "$MNT/data"   # /data = mount point for the per-instance writable disk (vdb)
 cp "$SRC/sitecustomize.py"    "$MNT/klados/sitecustomize.py"
 cp "$SRC/guest_agent.py"      "$MNT/klados/guest_agent.py"
 cp "$SRC/init_protocol"       "$MNT/init_protocol"

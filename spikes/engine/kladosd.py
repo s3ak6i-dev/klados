@@ -15,10 +15,14 @@ API: HTTP/JSON on 127.0.0.1:7070. Production would be a Rust daemon over gRPC (P
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,11 +75,60 @@ def init_db():
 LIVE: dict[str, fc.Microvm] = {}  # instance_id -> Microvm (in-memory; VMs die with the daemon)
 
 
+SCRATCH_MIB = 32  # per-instance writable /data disk
+
+
 def _spec():
     return fc.VmSpec(kernel=IMAGE["kernel"], rootfs=IMAGE["rootfs"], mem_mib=IMAGE["mem_mib"],
                      vcpus=1, track_dirty=True, rootfs_read_only=True,
-                     vsock_uds=BAKED + "/vm.vsock",
+                     vsock_uds=BAKED + "/vm.vsock", scratch=BAKED + "/scratch.ext4",
                      boot_args=f"console=ttyS0 reboot=k panic=1 pci=off init={IMAGE['init']}")
+
+
+def _make_scratch(path):
+    subprocess.run(["dd", "if=/dev/zero", f"of={path}", "bs=1M", f"count={SCRATCH_MIB}", "status=none"], check=True)
+    subprocess.run(["mkfs.ext4", "-q", "-F", path], check=True)
+
+
+def _scratch_of(snapshot_id):
+    return os.path.join(SNAPDIR, snapshot_id, "scratch.ext4")
+
+
+def _walk_fs(root):
+    """Return {relpath: (size, sha1)} for regular files, skipping lost+found."""
+    out = {}
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            fp = os.path.join(dirpath, fn)
+            rel = os.path.relpath(fp, root)
+            if rel.startswith("lost+found"):
+                continue
+            try:
+                h = hashlib.sha1()
+                with open(fp, "rb") as f:
+                    for chunk in iter(lambda: f.read(65536), b""):
+                        h.update(chunk)
+                out[rel] = [os.path.getsize(fp), h.hexdigest()[:12]]
+            except OSError:
+                pass
+    return out
+
+
+def _mount_ro(img):
+    # norecovery: the layer was sealed while the guest had it mounted, so the ext4 journal is
+    # "dirty"; a plain read-only mount refuses. norecovery mounts it without replaying the journal
+    # (the committed data — synced on QUIESCE — is all present).
+    mnt = tempfile.mkdtemp(prefix="klados-diff-")
+    subprocess.run(["mount", "-o", "loop,ro,norecovery", img, mnt], check=True)
+    return mnt
+
+
+def _umount(mnt):
+    subprocess.run(["umount", mnt], check=False)
+    try:
+        os.rmdir(mnt)
+    except OSError:
+        pass
 
 
 def _instance_dir(iid):
@@ -97,9 +150,15 @@ def _wait_agent(uds, timeout=20.0):
     return False
 
 
-def _boot_vm(iid, load_from=None):
-    """Boot a VM for instance iid. Fresh genesis if load_from is None, else restore a snapshot."""
+def _boot_vm(iid, load_from=None, scratch_src=None):
+    """Boot a VM for instance iid. Fresh genesis if load_from is None, else restore a snapshot.
+    scratch_src: seal a parent snapshot's disk layer to inherit it; else a fresh empty /data disk."""
     d = _instance_dir(iid)
+    scratch_path = os.path.join(d, "scratch.ext4")
+    if scratch_src and os.path.exists(scratch_src):
+        shutil.copy(scratch_src, scratch_path)   # inherit parent's disk layer (CoW-by-copy for now)
+    elif not os.path.exists(scratch_path):
+        _make_scratch(scratch_path)
     vm = fc.Microvm(_spec(), d, name="vm", console=os.path.join(d, "console"),
                     vsock_remap=(BAKED, d))
     vm._spawn()
@@ -144,6 +203,10 @@ def snapshot_instance(iid, label="snap"):
         pass
     vm.pause()
     vm.snapshot(snap, mem, diff=False)
+    # seal the writable /data disk layer into the snapshot (guest synced it on QUIESCE)
+    src_scratch = os.path.join(_instance_dir(iid), "scratch.ext4")
+    if os.path.exists(src_scratch):
+        shutil.copy(src_scratch, os.path.join(sd, "scratch.ext4"))
     vm.resume()
     size = os.stat(mem).st_blocks * 512 + os.path.getsize(snap)
     con.execute("INSERT INTO snapshots VALUES(?,?,?,?,?,?,?,?)",
@@ -163,7 +226,8 @@ def fork_snapshot(sid, n=4):
     children = []
     for i in range(n):
         iid = _id()
-        vm, uds = _boot_vm(iid, load_from=(snap["snap_path"], snap["mem_path"]))
+        vm, uds = _boot_vm(iid, load_from=(snap["snap_path"], snap["mem_path"]),
+                           scratch_src=_scratch_of(sid))  # inherit the forked snapshot's disk layer
         branch = f"branch {i} of {n}"
         try:
             _wait_agent(uds)  # let the restored agent resume its accept loop
@@ -180,6 +244,26 @@ def fork_snapshot(sid, n=4):
     con.commit()
     con.close()
     return {"children": children}
+
+
+def fs_diff(sid_a, sid_b):
+    """Filesystem diff between two snapshots' sealed /data layers (added/removed/modified files)."""
+    a, b = _scratch_of(sid_a), _scratch_of(sid_b)
+    if not (os.path.exists(a) and os.path.exists(b)):
+        return {"error": "one or both snapshots have no sealed disk layer"}
+    ma = _mount_ro(a)
+    mb = _mount_ro(b)
+    try:
+        fa, fb = _walk_fs(ma), _walk_fs(mb)
+        return {
+            "a": sid_a, "b": sid_b,
+            "added": sorted(p for p in fb if p not in fa),
+            "removed": sorted(p for p in fa if p not in fb),
+            "modified": sorted(p for p in fa if p in fb and fa[p] != fb[p]),
+        }
+    finally:
+        _umount(ma)
+        _umount(mb)
 
 
 def destroy_instance(iid):
@@ -237,6 +321,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, list_runs())
             if len(p) == 4 and p[0] == "v1" and p[1] == "runs" and p[3] == "timeline":
                 return self._send(200, timeline(p[2]))
+            if len(p) == 5 and p[1] == "snapshots" and p[3] == "diff":
+                return self._send(200, fs_diff(p[2], p[4]))
             self._send(404, {"error": "not found"})
         except Exception as e:
             self._send(500, {"error": str(e)})

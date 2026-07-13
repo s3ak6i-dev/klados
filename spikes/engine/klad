@@ -65,6 +65,7 @@ def main():
     ps = sub.add_parser("snapshot"); ps.add_argument("instance"); ps.add_argument("--label", default="snap")
     pf = sub.add_parser("fork"); pf.add_argument("snapshot"); pf.add_argument("-n", type=int, default=4)
     pl = sub.add_parser("log"); pl.add_argument("run")
+    pd = sub.add_parser("diff"); pd.add_argument("a"); pd.add_argument("b")
     a = ap.parse_args()
 
     if a.cmd == "run":
@@ -80,6 +81,18 @@ def main():
             print(f"  {c['instance_id']}  [{c['branch']}]")
     elif a.cmd == "log":
         render_timeline(call("GET", f"/v1/runs/{a.run}/timeline"))
+    elif a.cmd == "diff":
+        d = call("GET", f"/v1/snapshots/{a.a}/diff/{a.b}")
+        if d.get("error"):
+            print("error:", d["error"]); return
+        for p in d["added"]:
+            print(f"  + {p}")
+        for p in d["removed"]:
+            print(f"  - {p}")
+        for p in d["modified"]:
+            print(f"  ~ {p}")
+        if not (d["added"] or d["removed"] or d["modified"]):
+            print("  (no filesystem changes)")
     elif a.cmd == "runs":
         for run in call("GET", "/v1/runs")["runs"]:
             print(f"{run['id']}  {run['image']}")
