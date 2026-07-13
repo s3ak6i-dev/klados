@@ -1,0 +1,15 @@
+{
+  "name": "@klados/sdk",
+  "version": "0.1.0",
+  "description": "Klados TypeScript SDK — durable, forkable agent sandboxes.",
+  "license": "Apache-2.0",
+  "main": "dist/klados.js",
+  "types": "dist/klados.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "demo": "node dist/demo.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1"
+  }
+}
