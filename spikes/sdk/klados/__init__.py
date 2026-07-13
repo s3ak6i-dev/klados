@@ -22,6 +22,7 @@ import urllib.request
 __all__ = ["Sandbox", "Snapshot", "Timeline", "KladosError"]
 
 _API = os.environ.get("KLADOS_API", "http://127.0.0.1:7070")
+_KEY = os.environ.get("KLADOS_API_KEY", "")
 
 
 class KladosError(RuntimeError):
@@ -30,8 +31,10 @@ class KladosError(RuntimeError):
 
 def _call(method: str, path: str, body: dict | None = None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(_API + path, data=data, method=method,
-                                 headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if _KEY:
+        headers["X-Api-Key"] = _KEY
+    req = urllib.request.Request(_API + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=180) as r:
             return json.loads(r.read())

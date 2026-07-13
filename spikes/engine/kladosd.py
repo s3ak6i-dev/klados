@@ -62,8 +62,10 @@ def init_db():
     STORE = CAS(root=os.path.join(HOME, "chunks"), block=4096)
     con = db()
     con.executescript("""
+      CREATE TABLE IF NOT EXISTS projects(
+        id TEXT PRIMARY KEY, name TEXT, key_hash TEXT, created_at REAL);
       CREATE TABLE IF NOT EXISTS runs(
-        id TEXT PRIMARY KEY, image TEXT, created_at REAL);
+        id TEXT PRIMARY KEY, project_id TEXT, image TEXT, created_at REAL);
       CREATE TABLE IF NOT EXISTS snapshots(
         id TEXT PRIMARY KEY, run_id TEXT, parent_id TEXT, label TEXT,
         snap_path TEXT, mem_path TEXT, size_bytes INTEGER, created_at REAL);
@@ -71,8 +73,60 @@ def init_db():
         id TEXT PRIMARY KEY, run_id TEXT, snapshot_id TEXT, state TEXT,
         branch TEXT, created_at REAL);
     """)
+    # bootstrap a default project + root API key on first run
+    if not con.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
+        key = "klados_" + __import__("secrets").token_urlsafe(24)
+        con.execute("INSERT INTO projects VALUES(?,?,?,?)",
+                    (_id(), "default", _hash_key(key), time.time()))
+        con.commit()
+        with open(os.path.join(HOME, "root.key"), "w") as f:
+            f.write(key)
+        print(f"bootstrapped project 'default'; root API key written to {HOME}/root.key")
     con.commit()
     con.close()
+
+
+# ---------------------------------------------------------------- auth
+def _hash_key(k):
+    return hashlib.sha256(k.encode()).hexdigest()
+
+
+def create_project(name):
+    key = "klados_" + __import__("secrets").token_urlsafe(24)
+    pid = _id()
+    con = db()
+    con.execute("INSERT INTO projects VALUES(?,?,?,?)", (pid, name, _hash_key(key), time.time()))
+    con.commit()
+    con.close()
+    return {"project_id": pid, "name": name, "api_key": key}  # key shown once
+
+
+def project_of_key(key):
+    if not key:
+        return None
+    con = db()
+    row = con.execute("SELECT id FROM projects WHERE key_hash=?", (_hash_key(key),)).fetchone()
+    con.close()
+    return row["id"] if row else None
+
+
+def _project_of(table, col, val):
+    con = db()
+    row = con.execute(f"SELECT r.project_id FROM {table} t JOIN runs r ON t.run_id=r.id WHERE t.{col}=?",
+                      (val,)).fetchone() if table != "runs" else \
+        con.execute("SELECT project_id FROM runs WHERE id=?", (val,)).fetchone()
+    con.close()
+    return row["project_id"] if row else None
+
+
+class Forbidden(Exception):
+    pass
+
+
+def _require_owner(project_id, table, col, val):
+    owner = _project_of(table, col, val)
+    if owner != project_id:
+        raise Forbidden(f"{val} is not in your project")
 
 
 # ---------------------------------------------------------------- engine
@@ -206,10 +260,10 @@ def _boot_vm(iid, load_from=None, scratch_src=None):
     return vm, os.path.join(d, "vm.vsock")
 
 
-def create_run(image_label="klados/agent"):
+def create_run(project_id, image_label="klados/agent"):
     rid, iid = _id(), _id()
     con = db()
-    con.execute("INSERT INTO runs VALUES(?,?,?)", (rid, image_label, time.time()))
+    con.execute("INSERT INTO runs VALUES(?,?,?,?)", (rid, project_id, image_label, time.time()))
     con.execute("INSERT INTO instances VALUES(?,?,?,?,?,?)",
                 (iid, rid, None, "RUNNING", "genesis", time.time()))
     con.commit()
@@ -324,9 +378,10 @@ def timeline(run_id):
     return {"run_id": run_id, "snapshots": snaps, "instances": insts}
 
 
-def list_runs():
+def list_runs(project_id):
     con = db()
-    runs = [dict(r) for r in con.execute("SELECT * FROM runs ORDER BY created_at").fetchall()]
+    runs = [dict(r) for r in con.execute(
+        "SELECT * FROM runs WHERE project_id=? ORDER BY created_at", (project_id,)).fetchall()]
     con.close()
     return {"runs": runs}
 
@@ -351,32 +406,59 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0) or 0)
         return json.loads(self.rfile.read(n) or b"{}")
 
+    def _authed(self):
+        pid = project_of_key(self.headers.get("X-Api-Key", ""))
+        if not pid:
+            self._send(401, {"error": "missing or invalid API key (send X-Api-Key)"})
+            return None
+        return pid
+
     def do_GET(self):
         p = self.path.strip("/").split("/")
+        if p == ["health"]:
+            return self._send(200, {"status": "ok"})
+        pid = self._authed()
+        if not pid:
+            return
         try:
             if p == ["v1", "runs"]:
-                return self._send(200, list_runs())
-            if len(p) == 4 and p[0] == "v1" and p[1] == "runs" and p[3] == "timeline":
+                return self._send(200, list_runs(pid))
+            if len(p) == 4 and p[1] == "runs" and p[3] == "timeline":
+                _require_owner(pid, "runs", "id", p[2])
                 return self._send(200, timeline(p[2]))
             if len(p) == 5 and p[1] == "snapshots" and p[3] == "diff":
+                _require_owner(pid, "snapshots", "id", p[2])
+                _require_owner(pid, "snapshots", "id", p[4])
                 return self._send(200, fs_diff(p[2], p[4]))
             self._send(404, {"error": "not found"})
+        except Forbidden as e:
+            self._send(403, {"error": str(e)})
         except Exception as e:
             self._send(500, {"error": str(e)})
 
     def do_POST(self):
         p = self.path.strip("/").split("/")
+        pid = self._authed()
+        if not pid:
+            return
         try:
             b = self._body()
+            if p == ["v1", "projects"]:
+                return self._send(200, create_project(b.get("name", "project")))
             if p == ["v1", "runs"]:
-                return self._send(200, create_run(b.get("image", "klados/agent")))
+                return self._send(200, create_run(pid, b.get("image", "klados/agent")))
             if len(p) == 4 and p[1] == "instances" and p[3] == "snapshot":
+                _require_owner(pid, "instances", "id", p[2])
                 return self._send(200, snapshot_instance(p[2], b.get("label", "snap")))
             if len(p) == 4 and p[1] == "snapshots" and p[3] == "fork":
+                _require_owner(pid, "snapshots", "id", p[2])
                 return self._send(200, fork_snapshot(p[2], int(b.get("n", 4))))
             if len(p) == 4 and p[1] == "instances" and p[3] == "destroy":
+                _require_owner(pid, "instances", "id", p[2])
                 return self._send(200, destroy_instance(p[2]))
             self._send(404, {"error": "not found"})
+        except Forbidden as e:
+            self._send(403, {"error": str(e)})
         except Exception as e:
             self._send(500, {"error": str(e)})
 
