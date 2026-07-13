@@ -23,17 +23,26 @@ import zlib
 
 
 class CAS:
-    def __init__(self, root: str | None = None, block: int = 4096, cdc: bool = False, level: int = 3):
+    def __init__(self, root: str | None = None, block: int = 4096, cdc: bool = False, level: int = 3,
+                 s3=None, bucket: str | None = None):
         self.root = root
         self.block = block
         self.cdc = cdc
         self.level = level
+        self.s3 = s3            # optional object-storage cold tier (duck-typed: put/get/head)
+        self.bucket = bucket
         if root:
             os.makedirs(root, exist_ok=True)
+        if s3 and bucket:
+            s3.make_bucket(bucket)
         self.index: dict[str, int] = {}   # chunk hash -> stored (compressed) length
         self.logical = 0
         self.stored = 0
         self.chunks = 0
+
+    @staticmethod
+    def _key(h: str) -> str:
+        return f"{h[:2]}/{h}"
 
     # --- chunking ---
     def _blocks(self, data: bytes):
@@ -73,6 +82,8 @@ class CAS:
                     if not os.path.exists(p):
                         with open(p, "wb") as cf:
                             cf.write(comp)
+                if self.s3 and self.bucket:
+                    self.s3.put(self.bucket, self._key(h), comp)   # cold, durable tier
             manifest.append(h)
         return manifest
 
@@ -88,9 +99,20 @@ class CAS:
         return manifest
 
     def get(self, h: str) -> bytes:
-        """Return the decompressed bytes of a stored chunk (requires a persisted store)."""
-        with open(os.path.join(self.root, h[:2], h), "rb") as f:
-            return zlib.decompress(f.read())
+        """Return a chunk's decompressed bytes. Hot cache first; on a miss, pull from the S3 cold
+        tier and repopulate the cache (this is the cold-restore path)."""
+        p = os.path.join(self.root, h[:2], h) if self.root else None
+        if p and os.path.exists(p):
+            with open(p, "rb") as f:
+                return zlib.decompress(f.read())
+        if self.s3 and self.bucket:
+            comp = self.s3.get(self.bucket, self._key(h))
+            if p:  # warm the hot cache
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "wb") as f:
+                    f.write(comp)
+            return zlib.decompress(comp)
+        raise FileNotFoundError(f"chunk {h} not in hot cache and no S3 tier configured")
 
     def stats(self) -> dict:
         return {

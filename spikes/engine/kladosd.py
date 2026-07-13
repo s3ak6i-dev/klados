@@ -59,7 +59,16 @@ def init_db():
     global STORE
     os.makedirs(SNAPDIR, exist_ok=True)
     os.makedirs(RUNDIR, exist_ok=True)
-    STORE = CAS(root=os.path.join(HOME, "chunks"), block=4096)
+    s3 = None
+    bucket = None
+    if os.environ.get("KLADOS_S3_ENDPOINT"):
+        from s3 import S3
+        s3 = S3(os.environ["KLADOS_S3_ENDPOINT"],
+                os.environ.get("KLADOS_S3_KEY", "minioadmin"),
+                os.environ.get("KLADOS_S3_SECRET", "minioadmin"))
+        bucket = os.environ.get("KLADOS_S3_BUCKET", "klados-chunks")
+        print(f"S3 cold tier: {os.environ['KLADOS_S3_ENDPOINT']}/{bucket}")
+    STORE = CAS(root=os.path.join(HOME, "chunks"), block=4096, s3=s3, bucket=bucket)
     con = db()
     con.executescript("""
       CREATE TABLE IF NOT EXISTS projects(
