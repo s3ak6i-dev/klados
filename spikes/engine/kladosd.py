@@ -28,7 +28,9 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "harness"))
-import fc  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "storage"))
+import fc   # noqa: E402
+from cas import CAS  # noqa: E402
 
 HOME = os.environ.get("KLADOS_HOME", "/var/lib/klados")
 DB = os.path.join(HOME, "klados.db")
@@ -54,8 +56,10 @@ def db():
 
 
 def init_db():
+    global STORE
     os.makedirs(SNAPDIR, exist_ok=True)
     os.makedirs(RUNDIR, exist_ok=True)
+    STORE = CAS(root=os.path.join(HOME, "chunks"), block=4096)
     con = db()
     con.executescript("""
       CREATE TABLE IF NOT EXISTS runs(
@@ -76,6 +80,37 @@ LIVE: dict[str, fc.Microvm] = {}  # instance_id -> Microvm (in-memory; VMs die w
 
 
 SCRATCH_MIB = 32  # per-instance writable /data disk
+STORE = None      # content-addressed chunk store (cold storage for mem images); set in init_db
+_store_lock = __import__("threading").Lock()
+
+
+def _chunk_mem(sid, mem_path):
+    """Store a snapshot's mem image as content-addressed chunks + manifest, then drop the raw
+    file (realizing dedup). Returns logical bytes stored."""
+    with _store_lock:
+        hashes = STORE.put_file(mem_path)
+    with open(os.path.join(SNAPDIR, sid, "mem.manifest"), "w") as f:
+        json.dump({"block": 4096, "hashes": hashes}, f)
+    logical = os.path.getsize(mem_path)
+    os.remove(mem_path)  # cold form is the chunks; hot form is reconstructed on demand
+    return logical
+
+
+def _reconstruct_mem(sid):
+    """Materialize a snapshot's mem image from chunks into the hot cache (once). Forks of this
+    snapshot then load the SAME reconstructed file, preserving same-host page-cache sharing."""
+    mem = os.path.join(SNAPDIR, sid, "mem")
+    man = os.path.join(SNAPDIR, sid, "mem.manifest")
+    if os.path.exists(mem) or not os.path.exists(man):
+        return mem
+    with open(man) as f:
+        m = json.load(f)
+    tmp = mem + ".tmp"
+    with open(tmp, "wb") as out:
+        for h in m["hashes"]:
+            out.write(STORE.get(h))
+    os.replace(tmp, mem)
+    return mem
 
 
 def _spec():
@@ -208,7 +243,8 @@ def snapshot_instance(iid, label="snap"):
     if os.path.exists(src_scratch):
         shutil.copy(src_scratch, os.path.join(sd, "scratch.ext4"))
     vm.resume()
-    size = os.stat(mem).st_blocks * 512 + os.path.getsize(snap)
+    logical = _chunk_mem(sid, mem)  # store mem as content-addressed chunks (dedup); drop raw file
+    size = logical + os.path.getsize(snap)
     con.execute("INSERT INTO snapshots VALUES(?,?,?,?,?,?,?,?)",
                 (sid, run_id, parent, label, snap, mem, size, time.time()))
     con.execute("UPDATE instances SET snapshot_id=? WHERE id=?", (sid, iid))
@@ -223,6 +259,7 @@ def fork_snapshot(sid, n=4):
     if not snap:
         raise KeyError("no snapshot " + sid)
     run_id = snap["run_id"]
+    _reconstruct_mem(sid)  # materialize the mem image from chunks (once); forks share it
     children = []
     for i in range(n):
         iid = _id()

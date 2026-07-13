@@ -87,6 +87,11 @@ class CAS:
                 manifest += self.put_bytes(data)
         return manifest
 
+    def get(self, h: str) -> bytes:
+        """Return the decompressed bytes of a stored chunk (requires a persisted store)."""
+        with open(os.path.join(self.root, h[:2], h), "rb") as f:
+            return zlib.decompress(f.read())
+
     def stats(self) -> dict:
         return {
             "logical_bytes": self.logical,
